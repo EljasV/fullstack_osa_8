@@ -1,7 +1,27 @@
+const mongoose = require("mongoose")
+mongoose.set("strictQuery", false)
+const Author = require("./models/author")
+const Book = require("./models/book")
+
+require("dotenv").config()
+
 const {ApolloServer} = require('@apollo/server')
 const {startStandaloneServer} = require('@apollo/server/standalone')
 
 const {v1: uuid} = require("uuid");
+const {GraphQLError} = require("graphql/error");
+
+const MONGODB_URI = process.env.MONGODB_URI
+
+console.log("connecting to mongoDB")
+
+mongoose.connect(MONGODB_URI)
+    .then(() => {
+        console.log("connected to MongoDB")
+    }).catch((error) => {
+    console.log("error connecting to MongoDB", error.message)
+})
+
 
 let authors = [
     {
@@ -105,11 +125,12 @@ const typeDefs = `
     authorCount: Int
     allBooks(author: String, genre: String): [Book!]!
     allAuthors: [Author!]!
+    me: User
   }
   type Book {
     title: String!
     published: Int!
-    author: String!
+    author: Author!
     id: ID!
     genres: [String!]!
   }
@@ -122,40 +143,85 @@ const typeDefs = `
   type Mutation {
     addBook(title: String!, author: String!, published: Int!, genres: [String!]!): Book
     editAuthor(name: String!, setBornTo: Int): Author
+    createUser(username: String!, favoriteGenre: String!): User
+    login(username: String!, password: String!): Token
+  }
+  
+  type User {
+  username: String!
+  favoriteGenre: String!
+  id: ID!
+  }
+
+  type Token {
+  value: String!
   }
 `
 
 const resolvers = {
     Query: {
-        bookCount: () => books.length,
-        authorCount: () => authors.length,
-        allBooks: (root, args) => {
-            let byAuthor = args.author ? books.filter(book => book.author === args.author) : books;
-            let byGenre = args.genre ? byAuthor.filter(book => book.genres.includes(args.genre)) : byAuthor
-            return byGenre;
+        bookCount: async () => Book.collection.countDocuments(),
+        authorCount: async () => Author.collection.countDocuments(),
+        allBooks: async (root, args) => {
+
+            let byAuthor;
+            if (args.author) {
+
+                if (args.author.length < 4) {
+                    throw new GraphQLError("Author's name must be at least 4 characters long", {
+                        extensions: {code: "INVALID_INFO", fieldContent: args.author}
+                    })
+                }
+
+                const auth = await Author.findOne({name: args.author})
+                if (auth) {
+                    byAuthor = {author: auth._id};
+                }else{
+                    return []
+                }
+            } else {
+                byAuthor = {};
+            }
+
+            let byGenre = args.genre ? {...byAuthor, "genres": args.genre} : byAuthor
+            let foundBooks = await Book.find(byGenre).populate("author")
+            return foundBooks
         },
-        allAuthors: () => authors
+        allAuthors: async () => Author.find({})
     },
     Mutation: {
-        addBook: (root, args) => {
-            const book = {...args, id: uuid()}
-            books = books.concat(book)
+        addBook: async (root, args) => {
 
-            if (!authors.find(value => value.name === args.author)) {
-                const author = {name: args.author, id: uuid()}
-                authors = authors.concat(author)
+            if (args.author.length < 4) {
+                throw new GraphQLError("Author's name must be at least 4 characters long", {
+                    extensions: {code: "INVALID_INFO", fieldContent: args.author}
+                })
             }
-            return book
+            if (args.title.length < 5) {
+                throw new GraphQLError("Book's name must be at least 5 characters long", {
+                    extensions: {code: "INVALID_INFO", fieldContent: args.args.title}
+                })
+            }
+
+            let foundAuthor = await Author.findOne({name: args.author})
+            if (!foundAuthor) {
+                foundAuthor = await new Author({name: args.author}).save()
+            }
+            const book = new Book({...args, author: foundAuthor._id})
+
+
+            return book.save()
         },
-        editAuthor: (root, args) => {
-            let find = authors.find(value => args.name===value.name);
-            if (find) {
-                if (args.setBornTo) {
-                    find.born = args.setBornTo
-                }
-                return find
+        editAuthor: async (root, args) => {
+
+            if (args.author.length < 4) {
+                throw new GraphQLError("Author's name must be at least 4 characters long", {
+                    extensions: {code: "INVALID_INFO", fieldContent: args.author}
+                })
             }
-            return null
+
+            const update = args.setBornTo ? {born: args.setBornTo} : {}
+            return Author.findOneAndUpdate({name: args.name}, update);
         }
     },
     Book: {
@@ -168,7 +234,10 @@ const resolvers = {
     ,
     Author: {
         name: (root) => root.name,
-        bookCount: (root) => books.filter(book => book.author === root.name).length
+        bookCount: async (root) => {
+            return Book.countDocuments({author: root._id})
+            //return books.filter(book => book.author === root.name).length;
+        }
     }
 }
 
