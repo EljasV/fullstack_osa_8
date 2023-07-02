@@ -1,7 +1,10 @@
 const mongoose = require("mongoose")
+const jwt = require("jsonwebtoken")
+
 mongoose.set("strictQuery", false)
 const Author = require("./models/author")
 const Book = require("./models/book")
+const User = require("./models/user")
 
 require("dotenv").config()
 
@@ -176,7 +179,7 @@ const resolvers = {
                 const auth = await Author.findOne({name: args.author})
                 if (auth) {
                     byAuthor = {author: auth._id};
-                }else{
+                } else {
                     return []
                 }
             } else {
@@ -187,10 +190,21 @@ const resolvers = {
             let foundBooks = await Book.find(byGenre).populate("author")
             return foundBooks
         },
-        allAuthors: async () => Author.find({})
+        allAuthors: async () => Author.find({}),
+        me: async (root, args, context) => {
+            return context.currentUser
+        }
     },
     Mutation: {
-        addBook: async (root, args) => {
+        addBook: async (root, args, context) => {
+
+            if (!context.currentUser) {
+                throw new GraphQLError("You must be logged in in order to add books.", {
+                    extensions: {
+                        code: "NOT_LOGGED_IN"
+                    }
+                })
+            }
 
             if (args.author.length < 4) {
                 throw new GraphQLError("Author's name must be at least 4 characters long", {
@@ -212,16 +226,54 @@ const resolvers = {
 
             return book.save()
         },
-        editAuthor: async (root, args) => {
+        editAuthor: async (root, args,context) => {
 
-            if (args.author.length < 4) {
+            if (!context.currentUser) {
+                throw new GraphQLError("You must be logged in in order to edit authors.", {
+                    extensions: {
+                        code: "NOT_LOGGED_IN"
+                    }
+                })
+            }
+
+            if (args.name.length < 4) {
                 throw new GraphQLError("Author's name must be at least 4 characters long", {
                     extensions: {code: "INVALID_INFO", fieldContent: args.author}
                 })
             }
 
             const update = args.setBornTo ? {born: args.setBornTo} : {}
-            return Author.findOneAndUpdate({name: args.name}, update);
+            return Author.findOneAndUpdate({name: args.name}, update,{new:true})
+        },
+        createUser: async (root, args) => {
+            const user = new User({username: args.username, favoriteGenre: args.favoriteGenre})
+            return user.save().catch(error => {
+                throw new GraphQLError("Provided information is not correct for user creation.", {
+                    extensions: {
+                        code: "INVALID_INFO"
+                    },
+                    args: args,
+                    error
+                })
+            })
+        },
+        login: async (root, args) => {
+            const user = await User.findOne({username: args.username})
+
+            if (!user || args.password !== "secret") {
+                throw new GraphQLError("Invalid login info", {
+                    extensions: {
+                        code: "INVALID_INFO",
+                        username: args.username
+                    }
+                })
+            }
+
+            const tokenObject = {
+                username: user.username,
+                id: user.id
+            }
+            return {value: jwt.sign(tokenObject, process.env.JWT_SECRET)}
         }
     },
     Book: {
@@ -248,6 +300,14 @@ const server = new ApolloServer({
 
 startStandaloneServer(server, {
     listen: {port: 4000},
+    context: async ({req, res}) => {
+        const auth = req ? req.headers.authorization : null
+        if (auth && auth.startsWith("Bearer ")) {
+            const decodedToken = jwt.verify(auth.substring(7), process.env.JWT_SECRET)
+            const currentUser = await User.findById(decodedToken.id)
+            return {currentUser}
+        }
+    }
 }).then(({url}) => {
     console.log(`Server ready at ${url}`)
 })
