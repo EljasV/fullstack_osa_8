@@ -5,6 +5,8 @@ mongoose.set("strictQuery", false)
 const Author = require("./models/author")
 const Book = require("./models/book")
 const User = require("./models/user")
+const Genre = require("./models/genre")
+const BookGenre = require("./models/bookGenre")
 
 require("dotenv").config()
 
@@ -32,14 +34,22 @@ const typeDefs = `
     allBooks(author: String, genre: String): [Book!]!
     allAuthors: [Author!]!
     me: User
+    allGenres: [Genre!]!
   }
+  
+  type Genre{
+    name: String!
+    books: [Book!]!
+  }
+  
   type Book {
     title: String!
     published: Int!
     author: Author!
     id: ID!
-    genres: [String!]!
+    genres: [Genre!]!
   }
+  
   type Author {
     name: String!
     id: ID!
@@ -90,13 +100,17 @@ const resolvers = {
                 byAuthor = {};
             }
 
-            let byGenre = args.genre ? {...byAuthor, "genres": args.genre} : byAuthor
+            //let byGenre = args.genre ? {...byAuthor, "genres": args.genre} : byAuthor
+            let byGenre = byAuthor
             let foundBooks = await Book.find(byGenre)
             return foundBooks
         },
         allAuthors: async () => Author.find({}),
         me: async (root, args, context) => {
             return context.currentUser
+        },
+        allGenres: async () => {
+            return Genre.find({})
         }
     },
     Mutation: {
@@ -125,10 +139,20 @@ const resolvers = {
             if (!foundAuthor) {
                 foundAuthor = await new Author({name: args.author}).save()
             }
-            const book = new Book({...args, author: foundAuthor._id})
+
+            const book = await new Book({
+                title: args.title,
+                published: args.published,
+                author: foundAuthor._id
+            }).save()
+
+            for (const genreString of args.genres) {
+                const genreObject = await Genre.findOneAndUpdate({name: genreString}, {}, {upsert: true, new: true})
+                await new BookGenre({genre: genreObject._id, book: book._id}).save()
+            }
 
 
-            return book.save()
+            return book
         },
         editAuthor: async (root, args, context) => {
 
@@ -189,13 +213,23 @@ const resolvers = {
             return author
         },
         id: (root) => root.id,
-        genres: (root) => root.genres
+        genres: async (root) => {
+            const populate = await root.populate({path: "genres", populate: {path: "genre", justOne: true}})
+            return populate.genres.map(value => value.genre);
+        }
     }
     ,
     Author: {
         name: (root) => root.name,
         bookCount: async (root) => {
             return Book.countDocuments({author: root._id})
+        }
+    },
+    Genre: {
+        name: (root) => root.name,
+        books: async (root) => {
+            const populate = await root.populate({path: "books", populate: {path: "book", justOne: true}})
+            return populate.books.map(value => value.book)
         }
     }
 }
