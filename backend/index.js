@@ -100,9 +100,24 @@ const resolvers = {
                 byAuthor = {};
             }
 
-            //let byGenre = args.genre ? {...byAuthor, "genres": args.genre} : byAuthor
-            let byGenre = byAuthor
-            let foundBooks = await Book.find(byGenre)
+            let byGenre;
+
+            if (args.genre) {
+                const genre = await Genre.findOne({name: args.genre}).populate({
+                    path: "books",
+                    populate: {path: "book", justOne: true}
+                })
+
+                const ids = genre.books.map(item => item.book._id)
+
+
+                byGenre = {...byAuthor, "_id": ids}
+            } else {
+                byGenre = byAuthor
+            }
+
+
+            let foundBooks = Book.find(byGenre)
             return foundBooks
         },
         allAuthors: async () => Author.find({}),
