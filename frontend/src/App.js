@@ -2,7 +2,8 @@ import {useState} from 'react'
 import Authors from './components/Authors'
 import Books from './components/Books'
 import NewBook from './components/NewBook'
-import {Login} from "./components/Login";
+import Login from "./components/Login";
+import Recommended from "./components/Recommended";
 
 
 const App = () => {
@@ -19,6 +20,8 @@ const App = () => {
                 {token !== null ?
                     <>
                         <button onClick={() => setPage('add')}>add book</button>
+                        <button onClick={()=>setPage("recommended")}>Recommended</button>
+
                         <button onClick={() => {
                             localStorage.removeItem("loginToken")
                             setToken(null)
@@ -35,6 +38,8 @@ const App = () => {
             <NewBook show={page === 'add'}/>
 
             <Login show={page === "login"} setToken={setToken}></Login>
+
+            <Recommended show={page==="recommended"}></Recommended>
         </div>
     )
 }

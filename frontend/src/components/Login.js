@@ -9,7 +9,7 @@ const LOGIN = gql`
     }
 `
 
-export const Login = ({show, setToken}) => {
+const Login = ({show, setToken}) => {
     const [name, setName] = useState("")
     const [password, setPassword] = useState("")
 
@@ -47,3 +47,5 @@ export const Login = ({show, setToken}) => {
     </form>
 
 };
+
+export default Login
