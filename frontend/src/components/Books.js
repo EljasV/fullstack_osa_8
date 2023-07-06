@@ -57,9 +57,15 @@ const Books = (props) => {
         <div>
             <h2>books</h2>
 
-            <button onClick={() => setGenreFilter(null)}>Reset genre filter</button>
+            <button onClick={async () => {
+                setGenreFilter(null);
+                await bookResult.refetch({"genre": null})
+            }}>Reset genre filter</button>
             <div>
-                {genres.map(value => <button onClick={() => setGenreFilter(value)} key={value}>{value}</button>)}
+                {genres.map(value => <button onClick={async () => {
+                    setGenreFilter(value);
+                    await bookResult.refetch({"genre": value})
+                }} key={value}>{value}</button>)}
             </div>
 
             {genreFilter ? <h3>All books</h3> : <h3>Books of {genreFilter}</h3>}
